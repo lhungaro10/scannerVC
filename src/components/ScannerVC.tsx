@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LANDSCAPE_RIGHT, OrientationLocker } from 'react-native-orientation-locker';
 import { Camera, useCameraDevice, useCodeScanner, useCameraPermission, type Code, type CameraDeviceFormat } from 'react-native-vision-camera';
 import { CodebarMask } from './CodebarMask';
@@ -16,11 +16,16 @@ export const ScannerVC = ({ onClose }: ScannerVCProps) => {
     const lastScannedValue = useRef<string | null>(null);
     const format: CameraDeviceFormat | undefined = useMemo(() => {
         if (!device) return undefined;
-        // Pick a format that supports 10fps and prefers higher resolution.
+        // Pick a format that supports higher fps (30) and prefers higher resolution for better quality.
         const formats = device.formats
-            .filter(f => f.maxFps >= 10 && f.minFps <= 10)
-            .sort((a, b) => (b.photoHeight ?? 0) - (a.photoHeight ?? 0));
-        return formats[0];
+            .filter(f => f.maxFps >= 30 && f.minFps <= 30 && f.videoWidth != null && f.videoHeight != null)
+            .sort((a, b) => {
+                // Prioritize higher video resolution (width * height)
+                const areaA = (a.videoWidth ?? 0) * (a.videoHeight ?? 0);
+                const areaB = (b.videoWidth ?? 0) * (b.videoHeight ?? 0);
+                return areaB - areaA;
+            });
+        return formats[0] ?? device.formats[0]; // Fallback to first available format
     }, [device]);
     useEffect(() => {
         if (!hasPermission) {
@@ -29,18 +34,26 @@ export const ScannerVC = ({ onClose }: ScannerVCProps) => {
     }, [hasPermission, requestPermission]);
 
     const onCodesDetected = (code?: Code) => {
-
         if(!code){
             return;
         }
         const codeValue = code.value ?? '';
+        console.log('Detected code:', codeValue);
 
-        if (codeValue  === lastScannedValue.current || codeValue.length !== 44) {
+        if (codeValue.length !== 44) {
             return;
         }
 
         lastScannedValue.current = codeValue;
-        console.log('ITF code scanned:', barcodeToDigitableLine(codeValue));
+
+        Alert.alert('Código Escaneado', `Código: ${barcodeToDigitableLine(codeValue)}`, [
+            {
+                text: 'OK',
+                onPress: () => {
+                    lastScannedValue.current = null;
+                },
+            },
+        ]);
     };
 
     const codeScanner = useCodeScanner({
@@ -60,7 +73,17 @@ export const ScannerVC = ({ onClose }: ScannerVCProps) => {
     return (
         <View style={styles.container}>
             <OrientationLocker orientation={LANDSCAPE_RIGHT} />
-            <Camera format={format} fps={10} style={StyleSheet.absoluteFill} device={device} isActive codeScanner={codeScanner} />
+            <Camera
+                format={format}
+                fps={10}
+                style={StyleSheet.absoluteFill}
+                device={device}
+                isActive
+                codeScanner={codeScanner}
+                photoQualityBalance="quality"
+                videoStabilizationMode="auto"
+                enableZoomGesture
+            />
             <CodebarMask />
 
             <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.8}>
